@@ -72,11 +72,9 @@ contract Lottery {
      *
      * User sends the specified amount of ETH
      * User is included in the `players` array
+     * Emit an event
      */
     function enter() public {
-        // Uncomment this line, and the import of "hardhat/console.sol", to print a log in your terminal
-        // console.log("Unlock time is %o and block timestamp is %o", unlockTime, block.timestamp);
-
         // make sure player has enough ether
         require(address(msg.sender).balance >= amount, "Insufficient funds");
         // check if the game is full
@@ -84,23 +82,15 @@ contract Lottery {
             playerA != address(0x0) && playerB != address(0x0),
             "Game is full"
         );
-        if (address(playerA) == address(0x0)) {
-            playerA = payable(msg.sender);
-        } else if (address(playerB) == address(0x0)) {
-            playerB = payable(msg.sender);
-        }
 
         balances[address(msg.sender)] = amount;
-
-        // emit Withdrawal(address(this).balance, block.timestamp);
-        emit Enter(balances[msg.sender], address(msg.sender));
 
         (bool sent, bytes memory _data) = payable(address(this)).call{
             value: amount
         }("");
         require(sent, "Failed to send eth");
-        // (bool sent, bytes memory data) = _to.call{value: msg.value}("");
-        // owner.transfer(address(this).balance);
+
+        emit Enter(balances[msg.sender], address(msg.sender));
     }
 
     modifier restricted() {
