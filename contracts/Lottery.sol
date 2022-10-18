@@ -65,16 +65,17 @@ contract Lottery {
 
         payable(winnerAddr).transfer(address(this).balance);
 
-        console.log(winnerAddr, payable(winnerAddr).balance);
         players = new address payable[](0);
     }
 
+    /** Enter: Participate in lottery by sending ETH
+     *
+     * User sends the specified amount of ETH
+     * User is included in the `players` array
+     */
     function enter() public {
         // Uncomment this line, and the import of "hardhat/console.sol", to print a log in your terminal
         // console.log("Unlock time is %o and block timestamp is %o", unlockTime, block.timestamp);
-
-        // require(block.timestamp >= unlockTime, "You can't withdraw yet");
-        // require(msg.sender == owner, "You aren't the owner");
 
         // make sure player has enough ether
         require(address(msg.sender).balance >= amount, "Insufficient funds");

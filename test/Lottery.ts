@@ -85,6 +85,18 @@ describe("Lottery", async () => {
     let balancePreA: BigNumber;
     let balancePreB: BigNumber;
     let user: string;
+    let balances = {
+      addPlayer: {
+        a: BigNumber.from(0),
+        b: BigNumber.from(0),
+        ctrc: BigNumber.from(0),
+      },
+      pickWinner: {
+        a: BigNumber.from(0),
+        b: BigNumber.from(0),
+        ctrc: BigNumber.from(0),
+      },
+    };
 
     before(async () => {
       gasPrice = await lottery.provider.getGasPrice();
@@ -94,7 +106,10 @@ describe("Lottery", async () => {
       gasCost = gasLimitAdd.mul(gasPrice);
       balancePreContract = await lottery.provider.getBalance(lottery.address);
       balancePreA = await accts.a.getBalance();
+      balances.addPlayer.a = await accts.a.getBalance();
+
       balancePreB = await accts.b.getBalance();
+      balances.addPlayer.b = await accts.b.getBalance();
     });
     describe("Add Player A", async () => {
       before(async () => {
@@ -129,7 +144,8 @@ describe("Lottery", async () => {
 
       it(`Check balance ∆ - player A`, async () => {
         const acct = accts[user].address;
-        await balanceChangePost(acct, balancePreA, gameAmount.mul(-1), gasCost);
+        const balancePre = balances.addPlayer.a;
+        await balanceChangePost(acct, balancePre, gameAmount.mul(-1), gasCost);
       });
       it(`Fail to enter player A twice`, async () => {
         await expect(
@@ -206,157 +222,87 @@ describe("Lottery", async () => {
           gasPrice,
         });
         gasCostPick = gasLimitPick.mul(gasPrice);
+        balances.pickWinner.a = await lottery.provider.getBalance(
+          accts.a.address
+        );
+        balances.pickWinner.b = await lottery.provider.getBalance(
+          accts.b.address
+        );
+        balances.pickWinner.ctrc = await lottery.provider.getBalance(
+          contracts.base.address
+        );
       });
-      it("Should fail, unauthorized userA", async () => {
-        await expect(
-          contracts.a.pickWinner({
-            gasLimit: gasLimitPick,
-            gasPrice,
-          })
-        ).to.be.revertedWith("Must be manager");
-      });
-      it("Should fail, unauthorized userB", async () => {
-        await expect(
-          contracts.b.pickWinner({
-            gasLimit: gasLimitPick,
-            gasPrice,
-          })
-        ).to.be.revertedWith("Must be manager");
-      });
-      describe("Pick a winner", () => {
-        before(async () => {
-          // await contracts.base.pickWinner({
-          //   gasLimit: gasLimitPick,
-          //   gasPrice,
-          // });
+      describe("Pre-tests", () => {
+        it("Should fail, unauthorized userA", async () => {
+          await expect(
+            contracts.a.pickWinner({ gasLimit: gasLimitPick, gasPrice })
+          ).to.be.revertedWith("Must be manager");
         });
-        it("should be success", async () => {
-          expect(
-            await contracts.base.pickWinner({
-              gasLimit: gasLimitPick,
-              gasPrice,
-            })
-          );
+        it("Should fail, unauthorized userB", async () => {
+          await expect(
+            contracts.b.pickWinner({ gasLimit: gasLimitPick, gasPrice })
+          ).to.be.revertedWith("Must be manager");
+        });
+      });
+
+      describe("Call contract", () => {
+        it("Call should be successful", async () => {
+          let gasLimit = gasLimitPick;
+
+          await expect(contracts.base.pickWinner({ gasLimit, gasPrice }));
         });
 
         it("Contract balance should be 0", async () => {
           const addr = contracts.base.address;
-          const balancePost = await lottery.provider.getBalance(addr);
-          expect(balancePost).to.equal(0);
+          const contractBalance = await lottery.provider.getBalance(addr);
+
+          expect(contractBalance).to.equal(0);
         });
+
         it("Players array should be empty", async () => {
           const playersArr = await contracts.base.getPlayers();
+
           expect(playersArr.length).to.equal(0);
         });
         it("Winner should have a higher account balance", async () => {
-          // need to use a better gas limit calc
-  
-          // const balancePostA = await lottery.provider.getBalance(accts.a.address);
-          // const balancePostB = await lottery.provider.getBalance(accts.b.address);
-          const balancePostA = await lottery.provider.getBalance(accts.a.address);
-          const balancePostB = await lottery.provider.getBalance(accts.b.address);
-  
-          const isAwinner = balancePostA.gt(balancePostB);
-          if (isAwinner) {
-            console.log(
-              "A is winner:",
-              accts.a.address,
-              balancePostA,
-              await contracts.base.provider.getBalance(accts.a.address),
-              await accts.a.getBalance()
-            );
-            const calcA = balancePreA.add(gameAmount);
-            const calcA1Gas = calcA.sub(gasCost);
-            const calcA2Gas = calcA.sub(gasCost.mul(2).add(gasCostPick));
-  
-            expect(balancePostA).gte(calcA2Gas).and.lte(calcA1Gas);
-          } else {
-            console.log(
-              "B is winner:",
-              accts.b.address,
-              balancePostB,
-              await contracts.base.provider.getBalance(accts.b.address),
-              await accts.b.getBalance()
-            );
-            const calcB = balancePreB.add(gameAmount);
-            const calcB1Gas = calcB.sub(gasCost);
-            const calcB2Gas = calcB.sub(gasCost.mul(2).add(gasCostPick));
-  
-            expect(balancePostB).gte(calcB2Gas).and.lte(calcB1Gas);
-          }
+          // get the balances after the fxn call
+          const addrA = accts.a.address;
+          const addrB = accts.b.address;
+          const balancePostA = await lottery.provider.getBalance(addrA);
+          const balancePostB = await lottery.provider.getBalance(addrB);
+
+          // find the winning user
+          const winnerStr = balancePostA.gt(balancePostB) ? "a" : "b";
+          const winnerAddr = accts[winnerStr].address;
+          // get user balances pre- & post- contract call
+          const balancePre = balances.pickWinner[winnerStr];
+          const balancePost = await lottery.provider.getBalance(winnerAddr);
+          // calculate the expected user balance (accounting for variance in gas)
+          const expUpper = balancePre.add(gameAmount.mul(2)); // start amt + winnings (2 ETH)
+          const expLower = expUpper.sub(gasCostPick); // minus cost of failed call
+
+          expect(balancePost).gte(expLower).and.lte(expUpper);
         });
         it("Loser should have a lower account balance", async () => {
-          // need to use a better gas limit calc
-          const balancePostA: BigNumber = await accts.a.getBalance();
-          const balancePostB: BigNumber = await accts.b.getBalance();
-  
-          const isALoser = balancePostA.lt(balancePostB);
-          if (isALoser) {
-            const calcA = balancePreA.sub(gameAmount);
-            const calcA1Gas = calcA.sub(gasCost);
-            const calcA2Gas = calcA.sub(gasCost.mul(2));
-            expect(balancePostA).gte(calcA2Gas).and.lte(calcA1Gas);
-          } else {
-            const calcB = balancePreB.sub(gameAmount);
-            const calcB1Gas = calcB.sub(gasCost);
-            const calcB2Gas = calcB.sub(gasCost.mul(2));
-            expect(balancePostB).gte(calcB2Gas).and.lte(calcB1Gas);
-          }
+          // get the balances after the fxn call
+          const addrA = accts.a.address;
+          const addrB = accts.b.address;
+          const balancePostA = await lottery.provider.getBalance(addrA);
+          const balancePostB = await lottery.provider.getBalance(addrB);
+
+          // find the winning user
+          const loserStr = balancePostA.lt(balancePostB) ? "a" : "b";
+          const loserAddr = accts[loserStr].address;
+          // get user balances pre- & post- contract call
+          const balancePre = balances.pickWinner[loserStr];
+          const balancePost = await lottery.provider.getBalance(loserAddr);
+          // calculate the expected user balance (accounting for variance in gas)
+          const expUpper = balancePre; // loser does not earn anything
+          const expLower = expUpper.sub(gasCostPick); // minus cost of failed call
+
+          expect(balancePost).gte(expLower).and.lte(expUpper);
         });
       });
-
     });
-    // describe("Picking a winner", async  () {});
   });
-
-  // describe("Withdrawals", function () {
-  // describe("Validations", function () {
-  //   it("Should revert with the right error if called too soon", async () => {
-  //     const { lock } = await loadFixture(deployLottery);
-  //     await expect(lock.withdraw()).to.be.revertedWith(
-  //       "You can't withdraw yet"
-  //     );
-  //   });
-  //   it("Should revert with the right error if called from another account", async () => {
-  //     const { lock, unlockTime, otherAccount } = await loadFixture(
-  //       deployLottery
-  //     );
-  //     // We can increase the time in Hardhat Network
-  //     await time.increaseTo(unlockTime);
-  //     // We use lock.connect() to send a transaction from another account
-  //     await expect(lock.connect(otherAccount).withdraw()).to.be.revertedWith(
-  //       "You aren't the owner"
-  //     );
-  //   });
-  //   it("Shouldn't fail if the unlockTime has arrived and the owner calls it", async () => {
-  //     const { lock, unlockTime } = await loadFixture(deployLottery);
-  //     // Transactions are sent using the first signer by default
-  //     await time.increaseTo(unlockTime);
-  //     await expect(lock.withdraw()).not.to.be.reverted;
-  //   });
-  // });
-  // describe("Events", function () {
-  //   it("Should emit an event on withdrawals", async () => {
-  //     const { lock, unlockTime, lockedAmount } = await loadFixture(
-  //       deployLottery
-  //     );
-  //     await time.increaseTo(unlockTime);
-  //     await expect(lock.withdraw())
-  //       .to.emit(lock, "Withdrawal")
-  //       .withArgs(lockedAmount, anyValue); // We accept any value as `when` arg
-  //   });
-  // });
-  // describe("Transfers", function () {
-  //   it("Should transfer the funds to the owner", async () => {
-  //     const { lock, unlockTime, lockedAmount, owner } = await loadFixture(
-  //       deployLottery
-  //     );
-  //     await time.increaseTo(unlockTime);
-  //     await expect(lock.withdraw()).to.changeEtherBalances(
-  //       [owner, lock],
-  //       [lockedAmount, -lockedAmount]
-  //     );
-  //   });
-  // });
-  // });
 });
