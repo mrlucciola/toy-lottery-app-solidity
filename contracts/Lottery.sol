@@ -56,7 +56,11 @@ contract Lottery {
             );
     }
 
-    function pickWinner() public payable {
+    /** PickWinner: Pick a winner and distribute
+     * We use `restricted`: Manager should be the only one to call this
+     */
+    function pickWinner() public payable restricted {
+
         uint256 winnerIdx = random() % players.length;
         address winnerAddr = players[winnerIdx];
         // payable(winnerAddr).call{value: this.balance}("");
@@ -96,5 +100,10 @@ contract Lottery {
         require(sent, "Failed to send eth");
         // (bool sent, bytes memory data) = _to.call{value: msg.value}("");
         // owner.transfer(address(this).balance);
+    }
+
+    modifier restricted() {
+        require(msg.sender == manager, "Must be manager");
+        _;
     }
 }
