@@ -60,12 +60,12 @@ contract Lottery {
      * We use `restricted`: Manager should be the only one to call this
      */
     function pickWinner() public payable restricted {
-
         uint256 winnerIdx = random() % players.length;
         address winnerAddr = players[winnerIdx];
-        // payable(winnerAddr).call{value: this.balance}("");
+
         payable(winnerAddr).transfer(address(this).balance);
 
+        console.log(winnerAddr, payable(winnerAddr).balance);
         players = new address payable[](0);
     }
 
