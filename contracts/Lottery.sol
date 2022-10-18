@@ -1,26 +1,31 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.9;
-
-// Uncomment this line to use console.log
 import "hardhat/console.sol";
 
 contract Lottery {
-    // v2
+    /// @notice The owner of the contract. The only user capable of advancing the stages of the lottery.
+    /// @dev Need to create a setter to update the manager
     address public manager;
-    // v2
-    address payable public playerA;
-    // v2
-    address payable public playerB;
-    // v1
+
+    /// @notice Array of payable addresses which indicate the active players in the current lottery iteration
+    /// @dev This is currently set up to only handle 2 players
     address payable[] public players;
-    // v2
+
+    /// @notice The contribution size (in ETH) each player must submit in order to participate
+    /// @dev There is no setter for this variable.
     uint256 public amount;
-    // v2
-    mapping(address => uint256) public balances;
 
-    // event Withdrawal(uint256 amount, uint256 when);
-    event Enter(uint256 amount, address player);
+    /// @notice Emit this event when player is added to the lottery
+    event AddedPlayer(uint256 amount, address player);
 
+    /// @notice Emit this event when lottery concludes
+    event LotteryEnd(uint256 amount, address winner);
+
+    /** Constructor
+     *
+     * Set the contract `manager`/owner via msg.sender
+     * Set the lottery `amount`, the contribution size (in ETH) each player must submit in order to participate
+     */
     constructor(uint256 _amount) {
         manager = address(msg.sender); // owner
         amount = _amount;
@@ -30,9 +35,17 @@ contract Lottery {
         return players;
     }
 
+    /** Add Player: add a player to the lottery before drawing
+     *
+     * Performs checks:
+     * - If game is fully subscribed
+     * - If caller is currently participating
+     * - If caller sends sufficient assets
+     */
     function addPlayer() public payable {
         // check if game is full
         require(players.length < 2, "Game is full");
+
         // check if player is already entered
         if (players.length == 1) {
             require(
@@ -42,11 +55,18 @@ contract Lottery {
         }
 
         // send eth to contract
-        require(msg.value == amount, "Insufficient funds ser");
+        require(msg.value == amount, "Insufficient funds");
 
+        // add player to array
         players.push(payable(address(msg.sender)));
+
+        emit AddedPlayer(amount, address(msg.sender));
     }
 
+    /** Random: generate a pseudorandom number
+     *
+     * Not for production use.
+     */
     function random() private view returns (uint256) {
         return
             uint256(
@@ -56,43 +76,31 @@ contract Lottery {
             );
     }
 
-    /** PickWinner: Pick a winner and distribute
+    /** Pick winner: Pick a winner and distribute
      * We use `restricted`: Manager should be the only one to call this
+     *
+     * Reset the `players` array to allow for another game.
      */
     function pickWinner() public payable restricted {
+        // pick the winner using our RNG algo
         uint256 winnerIdx = random() % players.length;
         address winnerAddr = players[winnerIdx];
 
+        // transfer ETH to winner
         payable(winnerAddr).transfer(address(this).balance);
 
+        // reset players array
         players = new address payable[](0);
+
+        // emit
+        emit LotteryEnd(address(this).balance, winnerAddr);
     }
 
-    /** Enter: Participate in lottery by sending ETH
+    /** Restricted: limit use to contract manager
      *
-     * User sends the specified amount of ETH
-     * User is included in the `players` array
-     * Emit an event
+     * When this modifier is used, only the manager can call the function.
+     * Used to prevent unauthorized users from calling sensitive functions
      */
-    function enter() public {
-        // make sure player has enough ether
-        require(address(msg.sender).balance >= amount, "Insufficient funds");
-        // check if the game is full
-        require(
-            playerA != address(0x0) && playerB != address(0x0),
-            "Game is full"
-        );
-
-        balances[address(msg.sender)] = amount;
-
-        (bool sent, bytes memory _data) = payable(address(this)).call{
-            value: amount
-        }("");
-        require(sent, "Failed to send eth");
-
-        emit Enter(balances[msg.sender], address(msg.sender));
-    }
-
     modifier restricted() {
         require(msg.sender == manager, "Must be manager");
         _;
